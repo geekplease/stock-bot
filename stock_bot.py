@@ -27,7 +27,6 @@ class StockDipMonitor:
         self.price_history = {}
 
     def load_watched_stocks(self) -> Dict:
-        """Load watched stocks from config or use defaults"""
         default_stocks = {
             "AAPL": {"threshold": 3.0, "name": "Apple Inc."},
             "GOOGL": {"threshold": 3.0, "name": "Alphabet Inc."},
@@ -50,12 +49,10 @@ class StockDipMonitor:
             return default_stocks
 
     def save_watched_stocks(self, stocks: Dict):
-        """Save watched stocks (in-memory for cloud deployment)"""
         self.watched_stocks = stocks
         logger.info(f"Updated watched stocks: {list(stocks.keys())}")
 
     async def get_stock_data(self, symbol: str) -> Optional[Dict]:
-        """Fetch current stock data"""
         try:
             stock = yf.Ticker(symbol)
             hist = stock.history(period="5d")
@@ -90,7 +87,6 @@ class StockDipMonitor:
             return None
 
     def is_significant_dip(self, symbol: str, data: Dict) -> bool:
-        """Check if price drop is significant"""
         threshold = self.watched_stocks[symbol]['threshold']
 
         if data['pct_change'] <= -threshold:
@@ -102,7 +98,6 @@ class StockDipMonitor:
         return False
 
     def generate_alert_message(self, symbol: str, data: Dict) -> str:
-        """Create formatted alert message"""
         stock_info = self.watched_stocks[symbol]
 
         if data['pct_change'] <= -8:
@@ -133,7 +128,6 @@ class StockDipMonitor:
         """.strip()
 
     async def send_alert(self, message: str):
-        """Send Telegram alert"""
         try:
             await self.bot.send_message(
                 chat_id=self.chat_id,
@@ -145,7 +139,6 @@ class StockDipMonitor:
             logger.error(f"Failed to send alert: {e}")
 
     async def check_stocks(self):
-        """Check all stocks for dips"""
         logger.info("Checking stocks...")
         for symbol in self.watched_stocks.keys():
             try:
@@ -178,7 +171,6 @@ class TelegramStockBot:
         self.is_checking = False
 
     def setup_handlers(self):
-        """Setup command handlers"""
         self.app.add_handler(CommandHandler("start", self.start_command))
         self.app.add_handler(CommandHandler("status", self.status_command))
         self.app.add_handler(CommandHandler("add", self.add_stock_command))
@@ -267,7 +259,7 @@ class TelegramStockBot:
         async with self.app:
             async def periodic_check():
                 while True:
-                    await asyncio.sleep(900)  # 15 min
+                    await asyncio.sleep(900)  # 15 minutes
                     await self.scheduled_check()
 
             asyncio.create_task(periodic_check())
