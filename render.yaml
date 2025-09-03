@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: stock-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python stock_bot.py
+    envVars:
+      - key: 8448771678:AAGdqr4LUgWF-5iDKFpgj5QXK_2oHDNpxc8
+        sync: false
+      - key: 132643480
+        sync: false
