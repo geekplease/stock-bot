@@ -2,10 +2,11 @@ services:
   - type: web
     name: stock-bot
     env: python
-    buildCommand: pip install -r requirements.txt
+    pythonVersion: 3.13
+    buildCommand: pip install --upgrade --force-reinstall -r requirements.txt
     startCommand: python stock_bot.py
     envVars:
-      - key: 8448771678:AAGdqr4LUgWF-5iDKFpgj5QXK_2oHDNpxc8
+      - key: TELEGRAM_BOT_TOKEN
         sync: false
-      - key: 132643480
+      - key: TELEGRAM_CHAT_ID
         sync: false
