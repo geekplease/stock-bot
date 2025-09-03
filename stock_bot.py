@@ -350,8 +350,8 @@ The bot checks for dips every 15 minutes during market hours.
 async def main():
     """Main function"""
     # Get environment variables
-    BOT_TOKEN = os.getenv('8448771678:AAGdqr4LUgWF-5iDKFpgj5QXK_2oHDNpxc8')
-    CHAT_ID = os.getenv('132643480')
+    BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+    CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
     
     if not BOT_TOKEN or not CHAT_ID:
         logger.error("Missing required environment variables: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
