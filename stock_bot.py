@@ -1,3 +1,42 @@
+
+
+import asyncio import logging import os from datetime import datetime, timedelta from typing import Dict, Optional import json import yfinance as yf import pandas as pd from telegram import Bot from telegram.ext import Application, CommandHandler, ContextTypes # Configure logging logging.basicConf
+
+pasted
+
+this py file is not deploying giving Updater error. I've tried different solutions but it's not working:
+
+Looking at your Telegram bot code, the issue is likely related to how you're trying to run the bot. The error you're seeing is probably because you're using run_polling() which creates its own event loop, but you're also trying to run a concurrent periodic task.
+
+Here's the corrected version that should resolve the deployment issues:
+
+Fixed Telegram Stock Bot
+Code 
+The main changes I made to fix the deployment issues:
+
+Key Fixes:
+Proper Application Lifecycle Management: Added explicit initialization, start, and cleanup phases for the Telegram application.
+Correct Polling Setup: Used app.updater.start_polling() instead of app.run_polling() to have better control over the event loop.
+Task Management: Properly handle the periodic checking task with cancellation support.
+Better Error Handling: Added comprehensive try-catch blocks around critical sections.
+Graceful Shutdown: Implemented proper cleanup sequence when the bot is stopped.
+Additional Recommendations:
+Requirements.txt: Make sure you have this file with:
+python-telegram-bot>=20.0
+yfinance>=0.2.0
+pandas>=1.5.0
+Environment Variables: Ensure these are set:
+TELEGRAM_BOT_TOKEN: Your bot token from BotFather
+TELEGRAM_CHAT_ID: Your chat ID (you can get this by sending a message to your bot and checking https://api.telegram.org/bot<token>/getUpdates)
+For Cloud Deployment (like Heroku, Railway, etc.), you might also need a Procfile:
+worker: python main.py
+The main issue with your original code was trying to use run_polling() while also creating concurrent tasks, which creates conflicting event loops. This fixed version properly manages the asyncio event loop and task lifecycle.
+
+
+
+
+
+
 import asyncio
 import logging
 import os
@@ -247,23 +286,62 @@ class TelegramStockBot:
             self.is_checking = False
 
     async def scheduled_check(self):
+        """Periodic stock checking function"""
         if not self.is_checking:
             self.is_checking = True
             try:
                 await self.monitor.check_stocks()
+            except Exception as e:
+                logger.error(f"Error in scheduled check: {e}")
             finally:
                 self.is_checking = False
 
     async def start_bot(self):
+        """Start the bot with proper initialization and cleanup"""
         logger.info("Starting bot...")
-        async with self.app:
-            async def periodic_check():
-                while True:
+        
+        # Initialize the application
+        await self.app.initialize()
+        await self.app.start()
+        
+        # Start periodic checking task
+        async def periodic_check():
+            while True:
+                try:
                     await asyncio.sleep(900)  # 15 minutes
                     await self.scheduled_check()
+                except asyncio.CancelledError:
+                    logger.info("Periodic check task cancelled")
+                    break
+                except Exception as e:
+                    logger.error(f"Error in periodic check task: {e}")
 
-            asyncio.create_task(periodic_check())
-            await self.app.run_polling()
+        # Create and start the periodic task
+        check_task = asyncio.create_task(periodic_check())
+        
+        try:
+            # Start polling
+            await self.app.updater.start_polling()
+            
+            # Keep the bot running
+            while True:
+                await asyncio.sleep(1)
+                
+        except KeyboardInterrupt:
+            logger.info("Received interrupt signal")
+        except Exception as e:
+            logger.error(f"Bot error: {e}")
+        finally:
+            # Cleanup
+            check_task.cancel()
+            try:
+                await check_task
+            except asyncio.CancelledError:
+                pass
+            
+            await self.app.updater.stop()
+            await self.app.stop()
+            await self.app.shutdown()
 
 
 async def main():
@@ -271,12 +349,20 @@ async def main():
     CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
     if not BOT_TOKEN or not CHAT_ID:
-        logger.error("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID")
+        logger.error("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID environment variables")
         return
 
     bot = TelegramStockBot(BOT_TOKEN, CHAT_ID)
-    await bot.start_bot()
+    try:
+        await bot.start_bot()
+    except Exception as e:
+        logger.error(f"Failed to start bot: {e}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
