@@ -58,30 +58,67 @@ class StockDipMonitor:
         logger.info(f"Updated watched stocks: {list(stocks.keys())}")
 
     async def get_stock_data(self, symbol: str) -> Optional[Dict]:
+        """Get stock data using Yahoo Finance API directly"""
         try:
-            stock = yf.Ticker(symbol)
-            hist = stock.history(period="5d")
-
-            if hist.empty:
-                logger.warning(f"No data available for {symbol}")
+            # Use Yahoo Finance API directly
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+            params = {
+                'interval': '1d',
+                'range': '5d',
+                'includePrePost': 'false',
+                'events': 'div,splits'
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params) as response:
+                    if response.status != 200:
+                        logger.warning(f"API request failed for {symbol}: {response.status}")
+                        return None
+                    
+                    data = await response.json()
+                    
+            # Parse the Yahoo Finance response
+            chart_data = data.get('chart', {}).get('result', [])
+            if not chart_data:
+                logger.warning(f"No chart data available for {symbol}")
                 return None
-
-            current_price = hist['Close'].iloc[-1]
-            previous_close = hist['Close'].iloc[-2] if len(hist) >= 2 else current_price
+                
+            result = chart_data[0]
+            timestamps = result.get('timestamp', [])
+            indicators = result.get('indicators', {})
+            quote = indicators.get('quote', [{}])[0]
+            
+            closes = quote.get('close', [])
+            volumes = quote.get('volume', [])
+            
+            if not closes or len(closes) < 2:
+                logger.warning(f"Insufficient price data for {symbol}")
+                return None
+            
+            # Clean data (remove None values)
+            valid_closes = [price for price in closes if price is not None]
+            valid_volumes = [vol for vol in volumes if vol is not None]
+            
+            if len(valid_closes) < 2:
+                logger.warning(f"Not enough valid price data for {symbol}")
+                return None
+            
+            current_price = valid_closes[-1]
+            previous_close = valid_closes[-2]
             pct_change = ((current_price - previous_close) / previous_close) * 100
-
-            volume = hist['Volume'].iloc[-1]
-            avg_volume = hist['Volume'].mean()
-
-            hist_20d = stock.history(period="1mo")
-            ma_20 = hist_20d['Close'].rolling(window=20).mean().iloc[-1] if len(hist_20d) >= 20 else current_price
+            
+            current_volume = valid_volumes[-1] if valid_volumes else 0
+            avg_volume = sum(valid_volumes) / len(valid_volumes) if valid_volumes else 0
+            
+            # Calculate 20-day MA (use available data if less than 20 days)
+            ma_20 = sum(valid_closes) / len(valid_closes)
 
             return {
                 'symbol': symbol,
                 'current_price': round(float(current_price), 2),
                 'previous_close': round(float(previous_close), 2),
                 'pct_change': round(float(pct_change), 2),
-                'volume': int(volume),
+                'volume': int(current_volume),
                 'avg_volume': int(avg_volume),
                 'ma_20': round(float(ma_20), 2),
                 'timestamp': datetime.now()
