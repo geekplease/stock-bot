@@ -169,6 +169,7 @@ class TelegramStockBot:
         self.app = Application.builder().token(bot_token).build()
         self.setup_handlers()
         self.is_checking = False
+        self.check_task = None
 
     def setup_handlers(self):
         self.app.add_handler(CommandHandler("start", self.start_command))
@@ -246,66 +247,59 @@ class TelegramStockBot:
         finally:
             self.is_checking = False
 
-    async def scheduled_check(self):
-        """Periodic stock checking function"""
-        if not self.is_checking:
-            self.is_checking = True
+    async def periodic_check_task(self):
+        """Background task for periodic stock checking"""
+        while True:
             try:
-                await self.monitor.check_stocks()
-            except Exception as e:
-                logger.error(f"Error in scheduled check: {e}")
-            finally:
-                self.is_checking = False
-
-    async def start_bot(self):
-        """Start the bot with proper initialization and cleanup"""
-        logger.info("Starting bot...")
-        
-        # Initialize the application
-        await self.app.initialize()
-        await self.app.start()
-        
-        # Start periodic checking task
-        async def periodic_check():
-            while True:
-                try:
-                    await asyncio.sleep(900)  # 15 minutes
-                    await self.scheduled_check()
-                except asyncio.CancelledError:
-                    logger.info("Periodic check task cancelled")
-                    break
-                except Exception as e:
-                    logger.error(f"Error in periodic check task: {e}")
-
-        # Create and start the periodic task
-        check_task = asyncio.create_task(periodic_check())
-        
-        try:
-            # Start polling
-            await self.app.updater.start_polling()
-            
-            # Keep the bot running
-            while True:
-                await asyncio.sleep(1)
-                
-        except KeyboardInterrupt:
-            logger.info("Received interrupt signal")
-        except Exception as e:
-            logger.error(f"Bot error: {e}")
-        finally:
-            # Cleanup
-            check_task.cancel()
-            try:
-                await check_task
+                await asyncio.sleep(900)  # 15 minutes
+                if not self.is_checking:
+                    self.is_checking = True
+                    try:
+                        await self.monitor.check_stocks()
+                    except Exception as e:
+                        logger.error(f"Error in scheduled check: {e}")
+                    finally:
+                        self.is_checking = False
             except asyncio.CancelledError:
-                pass
-            
-            await self.app.updater.stop()
-            await self.app.stop()
-            await self.app.shutdown()
+                logger.info("Periodic check task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in periodic check task: {e}")
+                await asyncio.sleep(60)  # Wait a minute before retrying
+
+    async def post_init(self, app):
+        """Post-initialization callback to start background tasks"""
+        self.check_task = asyncio.create_task(self.periodic_check_task())
+        logger.info("Periodic stock checking task started")
+
+    async def post_shutdown(self, app):
+        """Post-shutdown callback to clean up background tasks"""
+        if self.check_task:
+            self.check_task.cancel()
+            try:
+                await self.check_task
+            except asyncio.CancelledError:
+                logger.info("Periodic check task stopped")
+
+    def run(self):
+        """Run the bot using the new v20+ pattern"""
+        # Set up post-init and post-shutdown callbacks
+        self.app.post_init = self.post_init
+        self.app.post_shutdown = self.post_shutdown
+        
+        # Run the bot
+        self.app.run_polling(
+            poll_interval=1.0,
+            timeout=10,
+            bootstrap_retries=5,
+            read_timeout=30,
+            write_timeout=30,
+            connect_timeout=30,
+            pool_timeout=30
+        )
 
 
-async def main():
+def main():
     BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
     CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
@@ -313,17 +307,15 @@ async def main():
         logger.error("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID environment variables")
         return
 
-    bot = TelegramStockBot(BOT_TOKEN, CHAT_ID)
     try:
-        await bot.start_bot()
-    except Exception as e:
-        logger.error(f"Failed to start bot: {e}")
-
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
+        bot = TelegramStockBot(BOT_TOKEN, CHAT_ID)
+        logger.info("Starting stock monitoring bot...")
+        bot.run()
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
         logger.error(f"Fatal error: {e}")
+
+
+if __name__ == "__main__":
+    main()
